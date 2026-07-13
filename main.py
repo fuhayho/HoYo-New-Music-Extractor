@@ -26,6 +26,39 @@ if os.name == 'nt':
 
 # FUNCTIONS
 
+def normalize_path(path_str):
+    return Path(path_str.strip().strip('"').strip("'")).resolve()
+
+def directory_has_files(path):
+    return path.is_dir() and any(path.iterdir())
+
+def prompt_for_directory(message):
+    while True:
+        user_input = input(message).strip()
+        if not user_input:
+            print("Path cannot be empty.")
+            continue
+        path = normalize_path(user_input)
+        if path.is_dir():
+            return path
+        print(f"Invalid directory: {path}")
+
+def get_directory_path(cli_path=None, default_dir=None, label="folder"):
+    if cli_path is not None and cli_path != "":
+        path = normalize_path(cli_path)
+        if path.is_dir():
+            return path
+        print(f"Error: not a directory: {path}")
+        return None
+
+    if default_dir:
+        default = Path(default_dir).resolve()
+        if directory_has_files(default):
+            return default
+
+    print(f"{label} is empty or missing.")
+    return prompt_for_directory(f"Enter path to {label}: ")
+
 # Walk directory and return list of .hdiff files in root of directory
 def walk_dir(path):
     file_list = []
@@ -55,6 +88,14 @@ def hpatch_files(original_dir, patch_dir, output_dir, file_list):
 def extract_files(original_dir, output_dir):
     tools_dir_abs = Path(TOOLS_DIR).resolve()
     subprocess.call([Path.joinpath(tools_dir_abs, "quickbms" + EXECUTABLE_EXTENSION), Path.joinpath(tools_dir_abs, "wavescan.bms"), Path(original_dir).resolve(), Path(output_dir).resolve()])
+
+# Return all .wem files in the root of directory
+def list_wem_files(directory):
+    file_list = []
+    for (dirpath, dirnames, filenames) in os.walk(directory):
+        file_list.extend(filenames)
+        break
+    return list(filter(lambda name: Path(name).suffix == ".wem", file_list))
 
 # Find and return list of all files in new_dir that are not also present in original_dir
 def filter_diff_files(original_dir, new_dir):
@@ -173,6 +214,29 @@ def check_temp_folders():
         if not os.path.exists(folder):
             os.makedirs(folder)
 
+def run_full_extract(source_path=None):
+    source = get_directory_path(cli_path=source_path, label="PCK folder")
+    if not source:
+        return
+
+    check_temp_folders()
+    delete_temp_files(False)
+
+    print(f"Full extract from: {source}")
+    extract_files(source, NEW_DECODE_DIR)
+
+    file_list = list_wem_files(NEW_DECODE_DIR)
+    if not file_list:
+        print("No .wem files found after extraction.")
+        return
+
+    print(f"Converting {len(file_list)} file(s) (no comparison).")
+    convert_to_wav(NEW_DECODE_DIR, file_list, WAV_DIR)
+    convert_to_aac(WAV_DIR, file_list, OUTPUT_DIR)
+
+    delete_temp_files(False)
+    print("Finished!")
+
 def delete_temp_files(new_file_flag):
     print("Deleting existing temporary files")
     if new_file_flag:
@@ -193,29 +257,53 @@ def delete_temp_files(new_file_flag):
 
 def main():
 
-    parser = argparse.ArgumentParser(description="Example argument parser")
+    parser = argparse.ArgumentParser(description="Extract new or all audio from HoYo Wwise PCK files")
     
     parser.add_argument("--no-hdiff", action="store_false",
                         help="Disable hdiff (default: enabled)")
 
+    parser.add_argument("--full", nargs="?", const="", metavar="PATH",
+                        help="Extract all audio from PATH without comparing (prompts if PATH omitted or folder empty)")
+
     args = parser.parse_args()
+
+    if args.full is not None:
+        run_full_extract(args.full if args.full else None)
+        return
     
     hdiff_flag = args.no_hdiff
 
     check_temp_folders()
-    
+    delete_temp_files(hdiff_flag)
+
+    original_dir = get_directory_path(default_dir=ORIGINAL_DIR, label="Original Game Files")
+    if not original_dir:
+        return
+
     if hdiff_flag:
-        delete_temp_files(hdiff_flag)
-        file_list = walk_dir(HDIFF_DIR) # Gets list of all .hdiff files
-        hpatch_files(ORIGINAL_DIR, HDIFF_DIR, NEW_DIR, file_list) # Patch all Wwise PCK audio files
-    elif not hdiff_flag:
-        delete_temp_files(hdiff_flag)
-        if not os.listdir(NEW_DIR):
-            print(f"{NEW_DIR} is empty.")
+        hdiff_dir = get_directory_path(default_dir=HDIFF_DIR, label="Hdiff Files")
+        if not hdiff_dir:
+            return
+        file_list = walk_dir(hdiff_dir)
+        if file_list:
+            hpatch_files(original_dir, hdiff_dir, NEW_DIR, file_list)
+            new_dir = Path(NEW_DIR).resolve()
+            if not directory_has_files(new_dir):
+                new_dir = get_directory_path(default_dir=NEW_DIR, label="New Game Files")
+                if not new_dir:
+                    return
+        else:
+            print("No .hdiff files found.")
+            new_dir = get_directory_path(default_dir=NEW_DIR, label="New Game Files")
+            if not new_dir:
+                return
+    else:
+        new_dir = get_directory_path(default_dir=NEW_DIR, label="New Game Files")
+        if not new_dir:
             return
     
-    extract_files(ORIGINAL_DIR, ORIGINAL_DECODE_DIR) # Extract all original audio files
-    extract_files(NEW_DIR, NEW_DECODE_DIR) # Extract all patched audio files
+    extract_files(original_dir, ORIGINAL_DECODE_DIR)
+    extract_files(new_dir, NEW_DECODE_DIR)
     
     new_file_list = filter_diff_files(ORIGINAL_DECODE_DIR, NEW_DECODE_DIR) # Find any new audio files that were not present in original PCK
     convert_to_wav(NEW_DECODE_DIR, new_file_list, WAV_DIR) # Convert all new audio files to WAV
