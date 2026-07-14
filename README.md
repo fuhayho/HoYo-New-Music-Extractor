@@ -7,7 +7,9 @@ Uses Hdiff to patch pck files, then searches through files to find any new music
 
 1. Put `.hdiff` files in the `./Hdiff Files` folder, and put all of your original game pck files in the `./Original Game Files` .
 2. Run the script by `python main.py`.
-3. If you don't have `.hdiff` files but have new game pck files which you want to compare and filter, then put all new files in the `./New Game Files` folder, and run the script by `python main.py --no-hdiff`.
+3. If you don't have `.hdiff` files but have new game pck files which you want to compare and filter, then put all new files in the `./New Game Files` folder, and run the script by `python main.py --no-hdiff`. You can also pass paths directly:
+   - `python main.py --no-hdiff --original "path/to/original" --new "path/to/new"`
+   - If either folder is empty, the script will prompt you for the path (external paths supported).
 4. To extract **all** audio from a folder of PCK files without comparison, run `python main.py --full "path/to/pck/folder"`. You can also run `python main.py --full` alone to enter a path when prompted.
 5. If any required folder is empty, the script will prompt you for a path. External absolute paths are supported (e.g. `D:\Games\Genshin\Audio`).
 

@@ -237,6 +237,34 @@ def run_full_extract(source_path=None):
     delete_temp_files(False)
     print("Finished!")
 
+def run_diff_extract(original_path=None, new_path=None):
+    original_dir = get_directory_path(cli_path=original_path, default_dir=ORIGINAL_DIR, label="Original Game Files")
+    if not original_dir:
+        return
+
+    new_dir = get_directory_path(cli_path=new_path, default_dir=NEW_DIR, label="New Game Files")
+    if not new_dir:
+        return
+
+    check_temp_folders()
+    delete_temp_files(False)
+
+    print(f"Comparing: {new_dir} vs {original_dir}")
+    extract_files(original_dir, ORIGINAL_DECODE_DIR)
+    extract_files(new_dir, NEW_DECODE_DIR)
+
+    new_file_list = filter_diff_files(ORIGINAL_DECODE_DIR, NEW_DECODE_DIR)
+    if not new_file_list:
+        print("No new or changed audio files found.")
+        delete_temp_files(False)
+        return
+
+    convert_to_wav(NEW_DECODE_DIR, new_file_list, WAV_DIR)
+    convert_to_aac(WAV_DIR, new_file_list, OUTPUT_DIR)
+
+    delete_temp_files(False)
+    print("Finished!")
+
 def delete_temp_files(new_file_flag):
     print("Deleting existing temporary files")
     if new_file_flag:
@@ -260,7 +288,13 @@ def main():
     parser = argparse.ArgumentParser(description="Extract new or all audio from HoYo Wwise PCK files")
     
     parser.add_argument("--no-hdiff", action="store_false",
-                        help="Disable hdiff (default: enabled)")
+                        help="Disable hdiff and compare original vs new PCK folders")
+
+    parser.add_argument("--original", metavar="PATH",
+                        help="Path to original PCK folder (prompts if folder empty)")
+
+    parser.add_argument("--new", metavar="PATH",
+                        help="Path to new PCK folder for --no-hdiff (prompts if folder empty)")
 
     parser.add_argument("--full", nargs="?", const="", metavar="PATH",
                         help="Extract all audio from PATH without comparing (prompts if PATH omitted or folder empty)")
@@ -273,41 +307,40 @@ def main():
     
     hdiff_flag = args.no_hdiff
 
+    if not hdiff_flag:
+        run_diff_extract(args.original, args.new)
+        return
+
     check_temp_folders()
     delete_temp_files(hdiff_flag)
 
-    original_dir = get_directory_path(default_dir=ORIGINAL_DIR, label="Original Game Files")
+    original_dir = get_directory_path(cli_path=args.original, default_dir=ORIGINAL_DIR, label="Original Game Files")
     if not original_dir:
         return
 
-    if hdiff_flag:
-        hdiff_dir = get_directory_path(default_dir=HDIFF_DIR, label="Hdiff Files")
-        if not hdiff_dir:
-            return
-        file_list = walk_dir(hdiff_dir)
-        if file_list:
-            hpatch_files(original_dir, hdiff_dir, NEW_DIR, file_list)
-            new_dir = Path(NEW_DIR).resolve()
-            if not directory_has_files(new_dir):
-                new_dir = get_directory_path(default_dir=NEW_DIR, label="New Game Files")
-                if not new_dir:
-                    return
-        else:
-            print("No .hdiff files found.")
-            new_dir = get_directory_path(default_dir=NEW_DIR, label="New Game Files")
+    hdiff_dir = get_directory_path(default_dir=HDIFF_DIR, label="Hdiff Files")
+    if not hdiff_dir:
+        return
+    file_list = walk_dir(hdiff_dir)
+    if file_list:
+        hpatch_files(original_dir, hdiff_dir, NEW_DIR, file_list)
+        new_dir = Path(NEW_DIR).resolve()
+        if not directory_has_files(new_dir):
+            new_dir = get_directory_path(cli_path=args.new, default_dir=NEW_DIR, label="New Game Files")
             if not new_dir:
                 return
     else:
-        new_dir = get_directory_path(default_dir=NEW_DIR, label="New Game Files")
+        print("No .hdiff files found.")
+        new_dir = get_directory_path(cli_path=args.new, default_dir=NEW_DIR, label="New Game Files")
         if not new_dir:
             return
     
     extract_files(original_dir, ORIGINAL_DECODE_DIR)
     extract_files(new_dir, NEW_DECODE_DIR)
     
-    new_file_list = filter_diff_files(ORIGINAL_DECODE_DIR, NEW_DECODE_DIR) # Find any new audio files that were not present in original PCK
-    convert_to_wav(NEW_DECODE_DIR, new_file_list, WAV_DIR) # Convert all new audio files to WAV
-    convert_to_aac(WAV_DIR, new_file_list, OUTPUT_DIR) # Convert all WAV to AAC
+    new_file_list = filter_diff_files(ORIGINAL_DECODE_DIR, NEW_DECODE_DIR)
+    convert_to_wav(NEW_DECODE_DIR, new_file_list, WAV_DIR)
+    convert_to_aac(WAV_DIR, new_file_list, OUTPUT_DIR)
     
     delete_temp_files(hdiff_flag)
     print("Finished!")
